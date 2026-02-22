@@ -15,8 +15,11 @@ def extract_url_features(url):
     features['num_digits'] = sum(c.isdigit() for c in url)
     features['num_special_chars'] = len(re.findall(r'[@\-_=]', url))
     features['has_ip'] = 1 if re.match(r'http[s]?://\d+\.\d+\.\d+\.\d+', url) else 0
-    features['num_subdomains'] = ext.subdomain.count('.') + 1 if ext.subdomain else 0
+    features['num_subdomains'] = len(ext.subdomain.split('.')) if ext.subdomain else 0
     features['uses_https'] = 1 if parsed.scheme == "https" else 0
+
+    features['domain_length'] = len(ext.domain)
+    features['tld_length'] = len(ext.suffix)
 
     try:
         response = requests.get(url, timeout=3)

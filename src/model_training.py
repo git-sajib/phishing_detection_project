@@ -1,6 +1,6 @@
 import joblib
 from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, accuracy_score
 from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
 
@@ -20,8 +20,8 @@ def train_model(df):
     model = XGBClassifier(use_label_encoder=False, eval_metric="logloss")
 
     param_grid = {
-        "n_estimators": [100, 200],
-        "max_depth": [3, 6],
+        "n_estimators": [200, 500],
+        "max_depth": [4, 6],
         "learning_rate": [0.01, 0.1]
     }
 
@@ -34,6 +34,9 @@ def train_model(df):
 
     print("Classification Report:")
     print(classification_report(y_test, y_pred))
+
+    accuracy = accuracy_score(y_test, y_pred)
+    print("Accuracy:", accuracy)
 
     joblib.dump(best_model, "models/phishing_model.pkl")
     joblib.dump(scaler, "models/scaler.pkl")
