@@ -1,0 +1,13 @@
+pandas
+numpy
+scikit-learn
+matplotlib
+seaborn
+shap
+joblib
+flask
+tldextract
+requests
+beautifulsoup4
+xgboost
+flask-cors
