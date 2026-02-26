@@ -4,11 +4,14 @@ import joblib
 import pandas as pd
 import re
 from urllib.parse import urlparse
+import os
 
 app = Flask(__name__)
 CORS(app)
 
+# ---------------------------
 # Load model and scaler
+# ---------------------------
 try:
     model = joblib.load("models/phishing_model.pkl")
     scaler = joblib.load("models/scaler.pkl")
@@ -19,13 +22,14 @@ except Exception as e:
     print("Model load error:", e)
 
 
+# ---------------------------
+# Feature Extraction
+# ---------------------------
 def extract_features(url):
-
     parsed = urlparse(url)
-
     features = {}
 
-    features["url"] = url
+    # IMPORTANT: DO NOT include "url" column (caused your error)
     features["length_url"] = len(url)
     features["length_hostname"] = len(parsed.hostname) if parsed.hostname else 0
     features["ip"] = 1 if re.match(r"http[s]?://\d+\.\d+\.\d+\.\d+", url) else 0
@@ -56,14 +60,18 @@ def extract_features(url):
 
     digits = sum(c.isdigit() for c in url)
     features["ratio_digits_url"] = digits / len(url) if len(url) > 0 else 0
-    features["ratio_digits_host"] = digits / len(parsed.hostname) if parsed.hostname else 0
+    features["ratio_digits_host"] = (
+        digits / len(parsed.hostname) if parsed.hostname else 0
+    )
 
     features["punycode"] = 1 if "xn--" in url else 0
     features["port"] = parsed.port if parsed.port else 0
     features["tld_in_path"] = 1 if re.search(r"\.(com|net|org|info|biz)", parsed.path) else 0
     features["tld_in_subdomain"] = 1 if re.search(r"\.(com|net|org)", parsed.hostname or "") else 0
     features["abnormal_subdomain"] = 0
-    features["nb_subdomains"] = (parsed.hostname.count(".") - 1) if parsed.hostname else 0
+    features["nb_subdomains"] = (
+        parsed.hostname.count(".") - 1 if parsed.hostname else 0
+    )
 
     features["prefix_suffix"] = 1 if "-" in (parsed.hostname or "") else 0
     features["random_domain"] = 0
@@ -73,7 +81,10 @@ def extract_features(url):
     features["nb_external_redirection"] = 0
 
     features["length_words_raw"] = len(url.split())
-    features["char_repeat"] = max([len(m.group(0)) for m in re.finditer(r"(.)\1*", url)], default=0)
+    features["char_repeat"] = max(
+        [len(m.group(0)) for m in re.finditer(r"(.)\1*", url)],
+        default=0
+    )
 
     words = re.split(r"\W+", url)
     features["shortest_words_raw"] = min([len(w) for w in words if w]) if words else 0
@@ -84,55 +95,37 @@ def extract_features(url):
     features["longest_word_host"] = len(parsed.hostname) if parsed.hostname else 0
     features["longest_word_path"] = len(parsed.path) if parsed.path else 0
 
-    features["avg_words_raw"] = sum(len(w) for w in words) / len(words) if words else 0
+    features["avg_words_raw"] = (
+        sum(len(w) for w in words) / len(words) if words else 0
+    )
     features["avg_word_host"] = len(parsed.hostname) if parsed.hostname else 0
     features["avg_word_path"] = len(parsed.path) if parsed.path else 0
 
     features["phish_hints"] = 1 if any(h in url for h in ["login", "verify", "secure"]) else 0
-    features["domain_in_brand"] = 0
-    features["brand_in_subdomain"] = 0
-    features["brand_in_path"] = 0
-    features["suspecious_tld"] = 0
-    features["statistical_report"] = 0
 
-    features["nb_hyperlinks"] = 0
-    features["ratio_intHyperlinks"] = 0
-    features["ratio_extHyperlinks"] = 0
-    features["ratio_nullHyperlinks"] = 0
-    features["nb_extCSS"] = 0
-    features["ratio_intRedirection"] = 0
-    features["ratio_extRedirection"] = 0
-    features["ratio_intErrors"] = 0
-    features["ratio_extErrors"] = 0
+    # Remaining static features
+    static_features = [
+        "domain_in_brand","brand_in_subdomain","brand_in_path","suspecious_tld",
+        "statistical_report","nb_hyperlinks","ratio_intHyperlinks",
+        "ratio_extHyperlinks","ratio_nullHyperlinks","nb_extCSS",
+        "ratio_intRedirection","ratio_extRedirection","ratio_intErrors",
+        "ratio_extErrors","login_form","external_favicon","links_in_tags",
+        "submit_email","ratio_intMedia","ratio_extMedia","sfh","iframe",
+        "popup_window","safe_anchor","onmouseover","right_clic",
+        "empty_title","domain_in_title","domain_with_copyright",
+        "whois_registered_domain","domain_registration_length",
+        "domain_age","web_traffic","dns_record","google_index","page_rank"
+    ]
 
-    features["login_form"] = 1 if "login" in url else 0
-    features["external_favicon"] = 0
-    features["links_in_tags"] = 0
-    features["submit_email"] = 0
-    features["ratio_intMedia"] = 0
-    features["ratio_extMedia"] = 0
-
-    features["sfh"] = 0
-    features["iframe"] = 0
-    features["popup_window"] = 0
-    features["safe_anchor"] = 0
-    features["onmouseover"] = 0
-    features["right_clic"] = 0
-    features["empty_title"] = 0
-    features["domain_in_title"] = 0
-    features["domain_with_copyright"] = 0
-
-    features["whois_registered_domain"] = 0
-    features["domain_registration_length"] = 0
-    features["domain_age"] = 0
-    features["web_traffic"] = 0
-    features["dns_record"] = 0
-    features["google_index"] = 1
-    features["page_rank"] = 0
+    for f in static_features:
+        features[f] = 0
 
     return features
 
 
+# ---------------------------
+# Routes
+# ---------------------------
 @app.route("/")
 def home():
     return jsonify({"message": "Phishing Detection API is running"})
@@ -154,10 +147,14 @@ def predict():
         features = extract_features(url)
         df = pd.DataFrame([features])
 
+        # Ensure same column order as training
+        df = df[scaler.feature_names_in_]
+
         df_scaled = scaler.transform(df)
 
         proba = model.predict_proba(df_scaled)[0]
-        legit_percentage = round(proba[1] * 100, 2)
+        legit_percentage = round(float(proba[1]) * 100, 2)
+
         result = "legitimate" if legit_percentage >= 50 else "phishing"
 
         return jsonify({

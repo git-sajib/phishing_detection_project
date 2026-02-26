@@ -11,8 +11,8 @@ AI-powered phishing detection using URL & HTML features with explainable machine
 ✔ URL & HTML feature analysis  
 ✔ Flask API backend  
 ✔ React frontend  
-✔ real dataset support  
-✔ university-ready documentation
+✔ real dataset   
+
 
 ---
 
@@ -30,17 +30,10 @@ phishing_detection_project/
 │   │   └── explainability.py
 │   └── models/
 │
-├── frontend/
-│
-├── crawler/
-│   ├── phishtank_crawler.py
-│   ├── legit_generator.py
-│   └── dataset_generator.py
+├── frontend/  
 │
 ├── data/
-│   ├── raw/
-│   ├── processed/
-│   └── phishing_large.csv
+│   ├── phishing_large.csv
 │
 └── README.md
 ```
@@ -98,7 +91,7 @@ npm run dev
 
 Real data from:
 
-✔ PhishTank  
+✔ Kaggle
 ✔ legitimate URLs  
 ✔ synthetic samples
 
@@ -135,14 +128,6 @@ Extracts:
 ✔ special characters  
 ✔ domain info  
 ✔ HTML elements
-
-Handled in:
-
-```
-src/feature_extraction.py
-```
-
----
 
 ### Model Training
 
