@@ -80,7 +80,7 @@ def train_model(df):
 
 if __name__ == "__main__":
 
-    dataset_path = "data/phishing_large.csv"
+    dataset_path = "../data/phishing_large.csv"
 
     if not os.path.exists(dataset_path):
         print("Dataset not found:", dataset_path)

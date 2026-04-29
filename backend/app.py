@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import joblib
 import pandas as pd
@@ -6,30 +6,35 @@ import re
 from urllib.parse import urlparse
 import os
 
-app = Flask(__name__)
+# ---------------------------
+# App Setup
+# ---------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+
+app = Flask(__name__, static_folder=STATIC_DIR)
 CORS(app)
 
 # ---------------------------
 # Load model and scaler
 # ---------------------------
 try:
-    model = joblib.load("models/phishing_model.pkl")
-    scaler = joblib.load("models/scaler.pkl")
-    print("Model loaded successfully")
+    model = joblib.load(os.path.join(BASE_DIR, "models/phishing_model.pkl"))
+    scaler = joblib.load(os.path.join(BASE_DIR, "models/scaler.pkl"))
+    print("✅ Model loaded successfully")
 except Exception as e:
     model = None
     scaler = None
-    print("Model load error:", e)
+    print("❌ Model load error:", e)
 
 
 # ---------------------------
-# Feature Extraction
+# Feature Extraction (FIXED)
 # ---------------------------
 def extract_features(url):
     parsed = urlparse(url)
     features = {}
 
-    # IMPORTANT: DO NOT include "url" column (caused your error)
     features["length_url"] = len(url)
     features["length_hostname"] = len(parsed.hostname) if parsed.hostname else 0
     features["ip"] = 1 if re.match(r"http[s]?://\d+\.\d+\.\d+\.\d+", url) else 0
@@ -60,50 +65,45 @@ def extract_features(url):
 
     digits = sum(c.isdigit() for c in url)
     features["ratio_digits_url"] = digits / len(url) if len(url) > 0 else 0
-    features["ratio_digits_host"] = (
-        digits / len(parsed.hostname) if parsed.hostname else 0
-    )
+    features["ratio_digits_host"] = digits / len(parsed.hostname) if parsed.hostname else 0
 
     features["punycode"] = 1 if "xn--" in url else 0
     features["port"] = parsed.port if parsed.port else 0
+
     features["tld_in_path"] = 1 if re.search(r"\.(com|net|org|info|biz)", parsed.path) else 0
     features["tld_in_subdomain"] = 1 if re.search(r"\.(com|net|org)", parsed.hostname or "") else 0
-    features["abnormal_subdomain"] = 0
-    features["nb_subdomains"] = (
-        parsed.hostname.count(".") - 1 if parsed.hostname else 0
-    )
 
+    features["nb_subdomains"] = parsed.hostname.count(".") - 1 if parsed.hostname else 0
     features["prefix_suffix"] = 1 if "-" in (parsed.hostname or "") else 0
-    features["random_domain"] = 0
+
     features["shortening_service"] = 1 if any(s in url for s in ["bit.ly", "tinyurl"]) else 0
     features["path_extension"] = 1 if re.search(r"\.(php|html|js)$", parsed.path) else 0
+
     features["nb_redirection"] = url.count("//") - 1
-    features["nb_external_redirection"] = 0
 
-    features["length_words_raw"] = len(url.split())
-    features["char_repeat"] = max(
-        [len(m.group(0)) for m in re.finditer(r"(.)\1*", url)],
-        default=0
-    )
-
+    # -------- WORD FEATURES (FIXED 🔥) --------
     words = re.split(r"\W+", url)
+
     features["shortest_words_raw"] = min([len(w) for w in words if w]) if words else 0
-    features["shortest_word_host"] = len(parsed.hostname) if parsed.hostname else 0
-    features["shortest_word_path"] = len(parsed.path) if parsed.path else 0
-
     features["longest_words_raw"] = max([len(w) for w in words if w]) if words else 0
-    features["longest_word_host"] = len(parsed.hostname) if parsed.hostname else 0
-    features["longest_word_path"] = len(parsed.path) if parsed.path else 0
+    features["avg_words_raw"] = sum(len(w) for w in words) / len(words) if words else 0
 
-    features["avg_words_raw"] = (
-        sum(len(w) for w in words) / len(words) if words else 0
-    )
-    features["avg_word_host"] = len(parsed.hostname) if parsed.hostname else 0
-    features["avg_word_path"] = len(parsed.path) if parsed.path else 0
+    # 🔥 CRITICAL FIX (missing features)
+    host_parts = parsed.hostname.split('.') if parsed.hostname else []
+    path_parts = parsed.path.split('/') if parsed.path else []
+
+    features["shortest_word_host"] = min([len(w) for w in host_parts if w]) if host_parts else 0
+    features["shortest_word_path"] = min([len(w) for w in path_parts if w]) if path_parts else 0
+
+    features["longest_word_host"] = max([len(w) for w in host_parts if w]) if host_parts else 0
+    features["longest_word_path"] = max([len(w) for w in path_parts if w]) if path_parts else 0
+
+    features["avg_word_host"] = sum(len(w) for w in host_parts) / len(host_parts) if host_parts else 0
+    features["avg_word_path"] = sum(len(w) for w in path_parts) / len(path_parts) if path_parts else 0
 
     features["phish_hints"] = 1 if any(h in url for h in ["login", "verify", "secure"]) else 0
 
-    # Remaining static features
+    # Static features
     static_features = [
         "domain_in_brand","brand_in_subdomain","brand_in_path","suspecious_tld",
         "statistical_report","nb_hyperlinks","ratio_intHyperlinks",
@@ -124,13 +124,21 @@ def extract_features(url):
 
 
 # ---------------------------
-# Routes
+# Serve Frontend
 # ---------------------------
 @app.route("/")
-def home():
-    return jsonify({"message": "Phishing Detection API is running"})
+def serve():
+    return send_from_directory(app.static_folder, "index.html")
 
 
+@app.route("/<path:path>")
+def serve_static(path):
+    return send_from_directory(app.static_folder, path)
+
+
+# ---------------------------
+# Prediction API
+# ---------------------------
 @app.route("/predict", methods=["POST"])
 def predict():
 
@@ -138,6 +146,7 @@ def predict():
         return jsonify({"error": "Model not loaded"}), 500
 
     data = request.get_json()
+
     if not data or "url" not in data:
         return jsonify({"error": "URL required"}), 400
 
@@ -147,7 +156,11 @@ def predict():
         features = extract_features(url)
         df = pd.DataFrame([features])
 
-        # Ensure same column order as training
+        # 🔥 SAFE COLUMN ALIGNMENT (VERY IMPORTANT)
+        for col in scaler.feature_names_in_:
+            if col not in df.columns:
+                df[col] = 0
+
         df = df[scaler.feature_names_in_]
 
         df_scaled = scaler.transform(df)
@@ -166,5 +179,8 @@ def predict():
         return jsonify({"error": str(e)}), 500
 
 
+# ---------------------------
+# Run Server
+# ---------------------------
 if __name__ == "__main__":
     app.run(debug=True)
